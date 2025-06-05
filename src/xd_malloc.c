@@ -379,6 +379,8 @@ static bool xd_heap_chunk_try_coalesce(xd_mem_block_header *chunk_header) {
     // last block is allocated, just remove the fenceposts
     chunk_header = prev_chunk_right_fencepost;
     chunk_size += 2 * XD_BLOCK_HEADER_SIZE;
+
+    chunk_header->prev_size = xd_block_get_size(prev_chunk_last_block);
   }
 
   // initialize the header after coalescing
