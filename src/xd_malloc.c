@@ -82,6 +82,8 @@ static inline xd_mem_block_header *xd_block_get_next(
 static inline xd_mem_block_header *xd_block_get_prev(
     const xd_mem_block_header *header);
 
+static void xd_block_split(xd_mem_block_header *header, size_t size);
+
 static void xd_free_list_insert(xd_mem_block_header *header);
 static void xd_free_list_remove(xd_mem_block_header *header);
 static xd_mem_block_header *xd_free_list_find(size_t size);
@@ -206,6 +208,34 @@ static inline xd_mem_block_header *xd_block_get_prev(
   return (xd_mem_block_header *)((xd_byte *)header - header->prev_size -
                                  XD_BLOCK_HEADER_SIZE);
 }  // xd_block_get_prev()
+
+/**
+ * @brief Splits the block pointed to by the passed header into two blocks,
+ * making the first block with the passed required size, and the second block
+ * with the rest of the block size.
+ *
+ * @param header Pointer to the block's header.
+ * @param size The required size of the first block after split.
+ */
+static void xd_block_split(xd_mem_block_header *header, size_t size) {
+  // get the size of the block before split
+  size_t block_size = xd_block_get_size(header);
+
+  // shrink the size of the block and mark it as allocated
+  xd_block_set_size_and_state(header, size, XD_MEM_BLOCK_UNALLOCATED);
+
+  // create a new free block with the rest of the size
+  xd_mem_block_header *new_block = xd_block_get_next(header);
+  size_t new_block_size = block_size - size - XD_BLOCK_HEADER_SIZE;
+  xd_block_set_size_and_state(new_block, new_block_size,
+                              XD_MEM_BLOCK_UNALLOCATED);
+  new_block->prev_size = size;
+  xd_free_list_insert(new_block);
+
+  // update the previous size of the block on the right of the new block
+  xd_mem_block_header *new_block_next = xd_block_get_next(new_block);
+  new_block_next->prev_size = new_block_size;
+}  // xd_block_split()
 
 /**
  * @brief Inserts the passed memory block header at the beginning of the free
@@ -412,26 +442,12 @@ void *xd_malloc(size_t size) {
   xd_free_list_remove(block_header);
   size_t block_size = xd_block_get_size(block_header);
 
-  if (block_size - size < sizeof(xd_mem_block_header)) {
-    // block size isn't enough to split
-    xd_block_set_state(block_header, XD_MEM_BLOCK_ALLOCATED);
+  if (block_size - size >= sizeof(xd_mem_block_header)) {
+    // block size is enough to be split
+    xd_block_split(block_header, size);
   }
-  else {
-    // shrink the size of the block and mark it as allocated
-    xd_block_set_size_and_state(block_header, size, XD_MEM_BLOCK_ALLOCATED);
 
-    // create a new free block with the rest of the size
-    xd_mem_block_header *new_block = xd_block_get_next(block_header);
-    size_t new_block_size = block_size - size - XD_BLOCK_HEADER_SIZE;
-    xd_block_set_size_and_state(new_block, new_block_size,
-                                XD_MEM_BLOCK_UNALLOCATED);
-    new_block->prev_size = size;
-    xd_free_list_insert(new_block);
-
-    // update the previous size of the block on the right of the new block
-    xd_mem_block_header *new_block_next = xd_block_get_next(new_block);
-    new_block_next->prev_size = new_block_size;
-  }
+  xd_block_set_state(block_header, XD_MEM_BLOCK_ALLOCATED);
 
   pthread_mutex_unlock(&xd_malloc_mutex);
   return (void *)block_header->data;
