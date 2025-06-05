@@ -104,7 +104,7 @@ static void xd_malloc_init() {
   xd_free_list_head = NULL;
 
   // initialize the mutex
-  if (pthread_mutex_init(&xd_malloc_mutex, NULL) == 0) {
+  if (pthread_mutex_init(&xd_malloc_mutex, NULL) != 0) {
     perror("fatal - mutex init failed");
     exit(EXIT_FAILURE);
   }
