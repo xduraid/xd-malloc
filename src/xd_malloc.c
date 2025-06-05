@@ -15,7 +15,9 @@
 
 #include "xd_malloc.h"
 
+#include <errno.h>
 #include <pthread.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -39,25 +41,53 @@ void *xd_heap_start_address = NULL;
  */
 xd_mem_block_header *xd_free_list_head = NULL;
 
+// ========================
+// Static Variables
+// ========================
+
 /**
- * @brief Mutex to ensure thread safety for the free list.
+ * @brief Pointer to the right fencepost of the most recently created heap
+ * chunk.
+ *
+ * Used when coalescing heap chunks.
  */
-static pthread_mutex_t xd_free_list_mutex = PTHREAD_MUTEX_INITIALIZER;
+static xd_mem_block_header *xd_recent_chunk_right_fencepost = NULL;
+
+/**
+ * @brief Mutex to ensure thread safety.
+ */
+static pthread_mutex_t xd_malloc_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 // ========================
 // Function Declarations
 // ========================
 
-// constructor for the library
+// constructor/destructor for the library
 static void xd_malloc_init() __attribute__((constructor));
+static void xd_malloc_destroy() __attribute__((destructor));
 
 // helpers
-static inline xd_mem_block_state xd_block_get_state(
-    const xd_mem_block_header *header);
+static inline void xd_block_set_size(xd_mem_block_header *header, size_t size);
 static inline void xd_block_set_state(xd_mem_block_header *header,
                                       xd_mem_block_state state);
+static inline void xd_block_set_size_and_state(xd_mem_block_header *header,
+                                               size_t size,
+                                               xd_mem_block_state state);
+static inline xd_mem_block_state xd_block_get_state(
+    const xd_mem_block_header *header);
 static inline size_t xd_block_get_size(const xd_mem_block_header *header);
-static inline void xd_block_set_size(xd_mem_block_header *header, size_t size);
+
+static inline xd_mem_block_header *xd_block_get_next(
+    const xd_mem_block_header *header);
+static inline xd_mem_block_header *xd_block_get_prev(
+    const xd_mem_block_header *header);
+
+static void xd_free_list_insert(xd_mem_block_header *header);
+static void xd_free_list_remove(xd_mem_block_header *header);
+static xd_mem_block_header *xd_free_list_find(size_t size);
+
+static void *xd_heap_chunk_create(size_t size);
+static bool xd_heap_chunk_try_coalesce(xd_mem_block_header *chunk_header);
 
 // ========================
 // Function Implementations
@@ -72,7 +102,10 @@ static void xd_malloc_init() {
   xd_free_list_head = NULL;
 
   // initialize the mutex
-  pthread_mutex_init(&xd_free_list_mutex, NULL);
+  if (pthread_mutex_init(&xd_malloc_mutex, NULL) == 0) {
+    perror("fatal - mutex init failed");
+    exit(EXIT_FAILURE);
+  }
 
   // disable stdout buffer so it won't call malloc
   setvbuf(stdout, NULL, _IONBF, 0);
@@ -80,6 +113,50 @@ static void xd_malloc_init() {
   // store the start adress of the heap
   xd_heap_start_address = sbrk(0);
 }  // xd_malloc_init()
+
+/**
+ * @brief Destructor to be executed on exit to cleanup.
+ */
+static void xd_malloc_destroy() {
+  pthread_mutex_destroy(&xd_malloc_mutex);
+}  // xd_malloc_destroy()
+
+/**
+ * @brief Sets the size of a memory block header.
+ *
+ * @param header Pointer to the memory block header.
+ *
+ * @param size Size of the block's data (in bytes).
+ */
+static inline void xd_block_set_size(xd_mem_block_header *header, size_t size) {
+  header->size = size | (header->size & XD_STATE_MASK);
+}  // xd_block_set_size()
+
+/**
+ * @brief Sets the state of a memory block header.
+ *
+ * @param header Pointer to the memory block header.
+ *
+ * @param state Allocation state of the block.
+ */
+static inline void xd_block_set_state(xd_mem_block_header *header,
+                                      xd_mem_block_state state) {
+  header->size = (header->size & ~XD_STATE_MASK) | state;
+}  // xd_block_set_state()
+
+/**
+ * @brief Sets the size and state of a memory block from its header.
+ *
+ * @param header Pointer to the memory block header.
+ *
+ * @param size Size of the block's data (in bytes).
+ * @param state Allocation state of the block.
+ */
+static inline void xd_block_set_size_and_state(xd_mem_block_header *header,
+                                               size_t size,
+                                               xd_mem_block_state state) {
+  header->size = (size & ~XD_STATE_MASK) | (state & XD_STATE_MASK);
+}  // xd_block_set_size_and_state()
 
 /**
  * @brief Gets the state of a memory block from its header.
@@ -94,18 +171,6 @@ static inline xd_mem_block_state xd_block_get_state(
 }  // xd_block_get_state()
 
 /**
- * @brief Sets the state of a memory block.
- *
- * @param header Pointer to the memory block header.
- *
- * @param state The new state to set.
- */
-static inline void xd_block_set_state(xd_mem_block_header *header,
-                                      xd_mem_block_state state) {
-  header->size = xd_block_get_size(header) | state;
-}  // xd_block_set_state()
-
-/**
  * @brief Gets the size of a memory block (excluding header, only user data).
  *
  * @param header Pointer to the memory block header.
@@ -113,16 +178,277 @@ static inline void xd_block_set_state(xd_mem_block_header *header,
  * @return The size of the memory block.
  */
 static inline size_t xd_block_get_size(const xd_mem_block_header *header) {
-  return header->size & ~XD_STATE_MASK;
+  return (size_t)(header->size & ~XD_STATE_MASK);
 }  // xd_block_get_size()
 
 /**
- * @brief Sets the size of a memory block (excluding header, only user data).
+ * @brief Returns the header of the next block in memory.
  *
- * @param header Pointer to the memory block header.
+ * @param header Pointer to the current block's header.
  *
- * @param size The size to set.
+ * @return Pointer to the next block's header.
  */
-static inline void xd_block_set_size(xd_mem_block_header *header, size_t size) {
-  header->size = (size & ~XD_STATE_MASK) | xd_block_get_state(header);
-}  // xd_block_set_size()
+static inline xd_mem_block_header *xd_block_get_next(
+    const xd_mem_block_header *header) {
+  return (xd_mem_block_header *)((xd_byte *)header + XD_BLOCK_HEADER_SIZE +
+                                 xd_block_get_size(header));
+}  // xd_block_get_next()
+
+/**
+ * @brief Returns the header of the previous block in memory.
+ *
+ * @param header Pointer to the current block's header.
+ *
+ * @return Pointer to the previous block's header.
+ */
+static inline xd_mem_block_header *xd_block_get_prev(
+    const xd_mem_block_header *header) {
+  return (xd_mem_block_header *)((xd_byte *)header - header->prev_size -
+                                 XD_BLOCK_HEADER_SIZE);
+}  // xd_block_get_prev()
+
+/**
+ * @brief Inserts the passed memory block header at the beginning of the free
+ * list.
+ *
+ * @param header A pointer to the memory block header to be inserted.
+ */
+static void xd_free_list_insert(xd_mem_block_header *header) {
+  header->prev = NULL;
+  header->next = xd_free_list_head;
+
+  if (xd_free_list_head != NULL) {
+    xd_free_list_head->prev = header;
+  }
+
+  xd_free_list_head = header;
+}  // xd_free_list_insert()
+
+/**
+ * @brief Removes the passed memory block header from the free list.
+ *
+ * @param header A pointer to the memory block header to be removed.
+ */
+static void xd_free_list_remove(xd_mem_block_header *header) {
+  if (header->prev != NULL) {
+    header->prev->next = header->next;
+  }
+  if (header->next != NULL) {
+    header->next->prev = header->prev;
+  }
+
+  if (header == xd_free_list_head) {
+    xd_free_list_head = xd_free_list_head->next;
+  }
+}  // xd_free_list_remove()
+
+/**
+ * @brief Searches the free list for the first block that can satisfy
+ * the requested size and returns its header.
+ *
+ * @param size The requested size in bytes.
+ *
+ * @return A pointer to the header of a suitable free block, or `NULL` if no
+ * such block exists.
+ */
+static xd_mem_block_header *xd_free_list_find(size_t size) {
+  xd_mem_block_header *header = xd_free_list_head;
+  while (header != NULL && xd_block_get_size(header) < size) {
+    header = header->next;
+  }
+  return header;
+}  // xd_free_list_find()
+
+/**
+ * @brief Requests a heap chunk from the OS and initializes it with fenceposts
+ * and a free block.
+ *
+ * The new chunk includes space for 2 fenceposts and a block header.
+ *
+ * @param size The required size of the usable data block in bytes.
+ *
+ * @return A pointer to the free block header on success, or `NULL` on
+ * failure.
+ */
+static void *xd_heap_chunk_create(size_t size) {
+  // ensure enough space for header and two fenceposts (left + right)
+  size += 3 * XD_BLOCK_HEADER_SIZE;
+
+  // roundup to multiple of XD_ARENA_SIZE
+  if (size % XD_ARENA_SIZE != 0) {
+    size += XD_ARENA_SIZE - (size % XD_ARENA_SIZE);
+  }
+
+  // increase heap size (request the chunk)
+  void *chunk = sbrk((intptr_t)size);
+  if (chunk == (void *)-1) {
+    return NULL;
+  }
+
+  // clean block size (data section)
+  size -= 3 * XD_BLOCK_HEADER_SIZE;
+
+  // create the left fencepost
+  xd_mem_block_header *left_fencepost = (xd_mem_block_header *)chunk;
+  xd_block_set_size_and_state(left_fencepost, 0, XD_MEM_BLOCK_FENCEPOST);
+  left_fencepost->prev_size = 0;
+
+  // create the free block
+  xd_mem_block_header *chunk_header = xd_block_get_next(left_fencepost);
+  xd_block_set_size_and_state(chunk_header, size, XD_MEM_BLOCK_UNALLOCATED);
+  chunk_header->prev_size = 0;
+
+  // create the right fencepost
+  xd_mem_block_header *right_fencepost = xd_block_get_next(chunk_header);
+  xd_block_set_size_and_state(right_fencepost, 0, XD_MEM_BLOCK_FENCEPOST);
+  right_fencepost->prev_size = size;
+
+  return chunk_header;
+}  // xd_heap_chunk_create()
+
+/**
+ * @brief Attempts to coalesce a new heap chunk with the chunk created before
+ * it.
+ *
+ * @param chunk_header A pointer to the heap chunk (initialized as free block).
+ *
+ * @return `true` on success, `false` otherwise.
+ */
+static bool xd_heap_chunk_try_coalesce(xd_mem_block_header *chunk_header) {
+  // this is the first allocated chunk, can't coalesce
+  if (xd_recent_chunk_right_fencepost == NULL) {
+    return false;
+  }
+
+  xd_mem_block_header *left_fencepost = xd_block_get_prev(chunk_header);
+  xd_mem_block_header *prev_chunk_right_fencepost =
+      xd_block_get_prev(left_fencepost);
+
+  // the recent chunk is not adjacent to the new chunk, can't coalesce
+  if (prev_chunk_right_fencepost != xd_recent_chunk_right_fencepost) {
+    return false;
+  }
+
+  size_t chunk_size = xd_block_get_size(chunk_header);
+
+  // get the last block in the previous chunk
+  xd_mem_block_header *prev_chunk_last_block =
+      xd_block_get_prev(prev_chunk_right_fencepost);
+
+  if (xd_block_get_state(prev_chunk_last_block) == XD_MEM_BLOCK_UNALLOCATED) {
+    // last block is unallocated, coalesce with the block
+    // remove the fenceposts
+    chunk_header = prev_chunk_last_block;
+    chunk_size +=
+        xd_block_get_size(prev_chunk_last_block) + (3 * XD_BLOCK_HEADER_SIZE);
+  }
+  else {
+    // last block is allocated, just remove the fenceposts
+    chunk_header = prev_chunk_right_fencepost;
+    chunk_size += 2 * XD_BLOCK_HEADER_SIZE;
+
+    // insert the chunk into the free list
+    xd_free_list_insert(chunk_header);
+  }
+
+  // initialize the header after coalescing
+  xd_block_set_size_and_state(chunk_header, chunk_size,
+                              XD_MEM_BLOCK_UNALLOCATED);
+
+  // update the right fencepost meta data
+  xd_mem_block_header *right_fencepost = xd_block_get_next(chunk_header);
+  right_fencepost->prev_size = chunk_size;
+  xd_recent_chunk_right_fencepost = right_fencepost;
+
+  // colaescing succeeded
+  return true;
+}  // xd_heap_chunk_try_coalesce()
+
+// ========================
+// non-static functions
+// ========================
+
+void *xd_malloc(size_t size) {
+  if (size == 0) {
+    return NULL;
+  }
+
+  pthread_mutex_lock(&xd_malloc_mutex);
+
+  // make sure there is enough space for the next/prev pointers
+  // to be used when the block is freed
+  if (size < XD_MIN_ALLOC_SIZE) {
+    size = XD_MIN_ALLOC_SIZE;
+  }
+
+  // roundup to multiple of XD_ALIGNMENT
+  if (size % XD_ALIGNMENT != 0) {
+    size += XD_ALIGNMENT - (size % XD_ALIGNMENT);
+  }
+
+  // find the first block in the free list with the required size
+  xd_mem_block_header *block_header = xd_free_list_find(size);
+  if (block_header == NULL) {
+    // no block with enough size was found, get more heap memory from the OS
+    xd_mem_block_header *chunk_header = xd_heap_chunk_create(size);
+
+    // out-of-memory failure
+    if (chunk_header == NULL) {
+      errno = ENOMEM;
+      pthread_mutex_unlock(&xd_malloc_mutex);
+      return NULL;
+    }
+
+    // coalesce or insert to free list
+    if (!xd_heap_chunk_try_coalesce(chunk_header)) {
+      xd_free_list_insert(chunk_header);
+      xd_recent_chunk_right_fencepost = xd_block_get_next(chunk_header);
+    }
+
+    block_header = xd_free_list_find(size);
+  }
+
+  // remove the block from the free list and get its size
+  xd_free_list_remove(block_header);
+  size_t block_size = xd_block_get_size(block_header);
+
+  if (block_size - size < sizeof(xd_mem_block_header)) {
+    // block size isn't enough to split
+    xd_block_set_state(block_header, XD_MEM_BLOCK_ALLOCATED);
+  }
+  else {
+    // shrink the size of the block and mark it as allocated
+    xd_block_set_size_and_state(block_header, size, XD_MEM_BLOCK_ALLOCATED);
+
+    // create a new free block with the rest of the size
+    xd_mem_block_header *new_block = xd_block_get_next(block_header);
+    size_t new_block_size = block_size - size - XD_BLOCK_HEADER_SIZE;
+    xd_block_set_size_and_state(new_block, new_block_size,
+                                XD_MEM_BLOCK_UNALLOCATED);
+    new_block->prev_size = size;
+    xd_free_list_insert(new_block);
+
+    // update the previous size of the block on the right of the new block
+    xd_mem_block_header *new_block_next = xd_block_get_next(new_block);
+    new_block_next->prev_size = new_block_size;
+  }
+
+  pthread_mutex_unlock(&xd_malloc_mutex);
+  return (void *)block_header->data;
+}  // xd_malloc()
+
+void xd_free(void *ptr) {
+  (void)ptr;
+}  // xd_free()
+
+void *xd_calloc(size_t n, size_t size) {
+  (void)n;
+  (void)size;
+  return NULL;
+}  // xd_calloc()
+
+void *xd_realloc(void *ptr, size_t size) {
+  (void)ptr;
+  (void)size;
+  return NULL;
+}  // xd_realloc()

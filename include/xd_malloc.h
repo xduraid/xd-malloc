@@ -19,13 +19,11 @@
 #include <stddef.h>
 
 /**
- * @brief The minimum allocation size that the allocator will
- * provide.
+ * @brief Alignment requirement for all memory blocks.
  *
- * All requested allocation sizes are rounded up to a multiple of
- * this value.
+ * All allocated memory block sizes must be a multiple of this value.
  */
-#define XD_MIN_ALLOCATION_SIZE (8)
+#define XD_ALIGNMENT (8)
 
 /**
  * @brief The default size of an arena - a large contiguous block
@@ -38,13 +36,14 @@
 /**
  * @brief The size of a memory block header (only metadata).
  */
-#define XD_HEADER_SIZE \
+#define XD_BLOCK_HEADER_SIZE \
   (sizeof(xd_mem_block_header) - 2 * sizeof(xd_mem_block_header *))
 
 /**
- * @brief The minimum size a free block must be to be managed in the free list.
+ * @brief The minimum data section size a memory block must have to be managed
+ * in the free list.
  */
-#define XD_MIN_FREE_BLOCK_SIZE (2 * sizeof(xd_mem_block_header *))
+#define XD_MIN_ALLOC_SIZE (2 * sizeof(xd_mem_block_header *))
 
 /**
  * @brief Represents a single byte of memory.
@@ -74,6 +73,8 @@ typedef struct xd_mem_block_header {
   // The start of the user's data
   // when the block is free (in the free list) `prev` and `next`
   // are used, otherwise (allocated) `data` will be used.
+  // if it is a fencepost this part is not used at all and no memory is
+  // allocated for it.
   union {
     struct {
       struct xd_mem_block_header *next;  // The next block in the free list
