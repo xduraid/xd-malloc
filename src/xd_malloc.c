@@ -114,6 +114,10 @@ static void xd_malloc_init() {
 
   // store the start adress of the heap
   xd_heap_start_address = sbrk(0);
+  if ((intptr_t)xd_heap_start_address % XD_ALIGNMENT != 0) {
+    fprintf(stderr, "xd_malloc: heap start is not 8-byte aligned\n");
+    exit(EXIT_FAILURE);
+  }
 }  // xd_malloc_init()
 
 /**
@@ -311,7 +315,7 @@ static void *xd_heap_chunk_create(size_t size) {
 
   // increase heap size (request the chunk)
   void *chunk = sbrk((intptr_t)size);
-  if (chunk == (void *)-1) {
+  if (chunk == (void *)-1 || (intptr_t)chunk % XD_ALIGNMENT != 0) {
     return NULL;
   }
 
