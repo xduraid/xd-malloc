@@ -371,14 +371,14 @@ static bool xd_heap_chunk_try_coalesce(xd_mem_block_header *chunk_header) {
     chunk_header = prev_chunk_last_block;
     chunk_size +=
         xd_block_get_size(prev_chunk_last_block) + (3 * XD_BLOCK_HEADER_SIZE);
+
+    // remove the block from list to be re-inserted at the beginning
+    xd_free_list_remove(chunk_header);
   }
   else {
     // last block is allocated, just remove the fenceposts
     chunk_header = prev_chunk_right_fencepost;
     chunk_size += 2 * XD_BLOCK_HEADER_SIZE;
-
-    // insert the chunk into the free list
-    xd_free_list_insert(chunk_header);
   }
 
   // initialize the header after coalescing
@@ -389,6 +389,9 @@ static bool xd_heap_chunk_try_coalesce(xd_mem_block_header *chunk_header) {
   xd_mem_block_header *right_fencepost = xd_block_get_next(chunk_header);
   right_fencepost->prev_size = chunk_size;
   xd_recent_chunk_right_fencepost = right_fencepost;
+
+  // insert the coalesced block into the free list
+  xd_free_list_insert(chunk_header);
 
   // colaescing succeeded
   return true;
