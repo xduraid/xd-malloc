@@ -92,7 +92,9 @@ typedef struct xd_mem_block_header {
  * @return A pointer to the allocated memory on success, or `NULL` on
  * failure.
  *
- * @note The returned allocated memory is uninitialized.
+ * @note If allocation fails due to lack of memory, `errno` is set to `ENOMEM`
+ * and `NULL` is returned.
+ * @note If the passed `size` is 0, `NULL` is returned.
  */
 void *xd_malloc(size_t size);
 
@@ -113,6 +115,11 @@ void xd_free(void *ptr);
  * @param size The size of each element in the array (in bytes).
  *
  * @return A pointer to the allocated memory on success, or `NULL` on failure.
+ *
+ * @note If allocation fails due to lack of memory, `errno` is set to `ENOMEM`
+ * and `NULL` is returned.
+ * @note If the passed `n` or `size` is 0, `NULL` is returned.
+ * @note If an overflow occurs (`n * size > SIZE_MAX`), `NULL` is returned.
  */
 void *xd_calloc(size_t n, size_t size);
 
