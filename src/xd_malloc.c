@@ -69,6 +69,7 @@ static void xd_malloc_init() __attribute__((constructor));
 static void xd_malloc_destroy() __attribute__((destructor));
 
 // helpers
+static inline xd_mem_block_header *xd_block_get_header_from_data(void *ptr);
 static inline void xd_block_set_size(xd_mem_block_header *header, size_t size);
 static inline void xd_block_set_state(xd_mem_block_header *header,
                                       xd_mem_block_state state);
@@ -131,6 +132,17 @@ static void xd_malloc_init() {
 static void xd_malloc_destroy() {
   pthread_mutex_destroy(&xd_malloc_mutex);
 }  // xd_malloc_destroy()
+
+/**
+ * @brief Returns the header of a memory block from its data section address.
+ *
+ * @param ptr Pointer to the data section of a block.
+ *
+ * @return Pointer to the memory block's header.
+ */
+static inline xd_mem_block_header *xd_block_get_header_from_data(void *ptr) {
+  return (xd_mem_block_header *)((xd_byte *)ptr - XD_BLOCK_HEADER_SIZE);
+}  // xd_block_get_header_from_data()
 
 /**
  * @brief Sets the size of a memory block header.
@@ -545,8 +557,7 @@ void xd_free(void *ptr) {
   }
   pthread_mutex_lock(&xd_malloc_mutex);
 
-  xd_mem_block_header *header =
-      (xd_mem_block_header *)((xd_byte *)ptr - XD_BLOCK_HEADER_SIZE);
+  xd_mem_block_header *header = xd_block_get_header_from_data(ptr);
 
   // double free is fatal abort
   if (xd_block_get_state(header) == XD_MEM_BLOCK_UNALLOCATED) {
@@ -605,8 +616,7 @@ void *xd_realloc(void *ptr, size_t size) {
     return xd_malloc(size);
   }
 
-  xd_mem_block_header *header =
-      (xd_mem_block_header *)((xd_byte *)ptr - XD_BLOCK_HEADER_SIZE);
+  xd_mem_block_header *header = xd_block_get_header_from_data(ptr);
   size_t old_size = xd_block_get_size(header);
 
   // TODO: Optimization
