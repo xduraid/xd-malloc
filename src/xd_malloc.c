@@ -83,6 +83,9 @@ static inline xd_mem_block_header *xd_block_get_prev(
     const xd_mem_block_header *header);
 
 static void xd_block_split(xd_mem_block_header *header, size_t size);
+static void xd_block_coalesce_with_prev_and_next(xd_mem_block_header *header);
+static void xd_block_coalesce_with_prev(xd_mem_block_header *header);
+static void xd_block_coalesce_with_next(xd_mem_block_header *header);
 
 static void xd_free_list_insert(xd_mem_block_header *header);
 static void xd_free_list_remove(xd_mem_block_header *header);
@@ -243,6 +246,75 @@ static void xd_block_split(xd_mem_block_header *header, size_t size) {
   xd_mem_block_header *new_block_next = xd_block_get_next(new_block);
   new_block_next->prev_size = new_block_size;
 }  // xd_block_split()
+
+/**
+ * @brief Coalesce the memory block pointed to by the passed header with both
+ * the block before it and the block after it in memory.
+ *
+ * @param header Pointer to the block's header to be coalesced.
+ *
+ * @note This function is a helper for `xd_free()` and must be called only on a
+ * block when both the blocks before it and after it are unallocated.
+ */
+static void xd_block_coalesce_with_prev_and_next(xd_mem_block_header *header) {
+  xd_mem_block_header *prev = xd_block_get_prev(header);
+  xd_mem_block_header *next = xd_block_get_next(header);
+  size_t size = xd_block_get_size(header) + xd_block_get_size(prev) +
+                xd_block_get_size(next) + (2 * XD_BLOCK_HEADER_SIZE);
+  xd_free_list_remove(next);
+  header = prev;
+  xd_block_set_size_and_state(header, size, XD_MEM_BLOCK_UNALLOCATED);
+  next = xd_block_get_next(header);
+  next->prev_size = size;
+}  // xd_block_coalesce_with_prev_and_next()
+
+/**
+ * @brief Coalesce the memory block pointed to by the passed header with the
+ * block before it.
+ *
+ * @param header Pointer to the block's header to be coalesced.
+ *
+ * @note This function is a helper for `xd_free()` and must be called only on a
+ * block when the block before it is unallocated.
+ */
+static void xd_block_coalesce_with_prev(xd_mem_block_header *header) {
+  xd_mem_block_header *prev = xd_block_get_prev(header);
+  size_t size = xd_block_get_size(header) + xd_block_get_size(prev) +
+                XD_BLOCK_HEADER_SIZE;
+  header = prev;
+  xd_block_set_size_and_state(header, size, XD_MEM_BLOCK_UNALLOCATED);
+  xd_mem_block_header *next = xd_block_get_next(header);
+  next->prev_size = size;
+}  // xd_block_coalesce_with_prev()
+
+/**
+ * @brief Coalesce the memory block pointed to by the passed header with the
+ * block after it.
+ *
+ * @param header Pointer to the block's header to be coalesced.
+ *
+ * @note This function is a helper for `xd_free()` and must be called only on a
+ * block when the block after it is unallocated.
+ */
+static void xd_block_coalesce_with_next(xd_mem_block_header *header) {
+  xd_mem_block_header *next = xd_block_get_next(header);
+  size_t size = xd_block_get_size(header) + xd_block_get_size(next) +
+                XD_BLOCK_HEADER_SIZE;
+  xd_block_set_size_and_state(header, size, XD_MEM_BLOCK_UNALLOCATED);
+  header->prev = next->prev;
+  header->next = next->next;
+  if (header->prev != NULL) {
+    header->prev->next = header;
+  }
+  if (header->next != NULL) {
+    header->next->prev = header;
+  }
+  if (next == xd_free_list_head) {
+    xd_free_list_head = header;
+  }
+  next = xd_block_get_next(header);
+  next->prev_size = size;
+}  // xd_block_coalesce_with_next()
 
 /**
  * @brief Inserts the passed memory block header at the beginning of the free
@@ -466,7 +538,44 @@ void *xd_malloc(size_t size) {
 }  // xd_malloc()
 
 void xd_free(void *ptr) {
-  (void)ptr;
+  if (ptr == NULL) {
+    return;
+  }
+  pthread_mutex_lock(&xd_malloc_mutex);
+
+  xd_mem_block_header *header =
+      (xd_mem_block_header *)((xd_byte *)ptr - XD_BLOCK_HEADER_SIZE);
+
+  // double free is fatal abort
+  if (xd_block_get_state(header) == XD_MEM_BLOCK_UNALLOCATED) {
+    pthread_mutex_unlock(&xd_malloc_mutex);
+    fprintf(stderr, "xd_free(): double free detected\n");
+    abort();
+  }
+
+  // get previous and next blocks
+  xd_mem_block_header *prev = xd_block_get_prev(header);
+  xd_mem_block_header *next = xd_block_get_next(header);
+  xd_mem_block_state prev_state = xd_block_get_state(prev);
+  xd_mem_block_state next_state = xd_block_get_state(next);
+
+  // coalesce with previous and/or next block if possible
+  if (prev_state == XD_MEM_BLOCK_UNALLOCATED &&
+      next_state == XD_MEM_BLOCK_UNALLOCATED) {
+    xd_block_coalesce_with_prev_and_next(header);
+  }
+  else if (prev_state == XD_MEM_BLOCK_UNALLOCATED) {
+    xd_block_coalesce_with_prev(header);
+  }
+  else if (next_state == XD_MEM_BLOCK_UNALLOCATED) {
+    xd_block_coalesce_with_next(header);
+  }
+  else {
+    xd_block_set_state(header, XD_MEM_BLOCK_UNALLOCATED);
+    xd_free_list_insert(header);
+  }
+
+  pthread_mutex_unlock(&xd_malloc_mutex);
 }  // xd_free()
 
 void *xd_calloc(size_t n, size_t size) {
