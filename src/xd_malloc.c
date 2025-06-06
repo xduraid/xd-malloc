@@ -18,8 +18,10 @@
 #include <errno.h>
 #include <pthread.h>
 #include <stdbool.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <unistd.h>
 
 /**
@@ -579,9 +581,19 @@ void xd_free(void *ptr) {
 }  // xd_free()
 
 void *xd_calloc(size_t n, size_t size) {
-  (void)n;
-  (void)size;
-  return NULL;
+  if (n == 0 || size == 0) {
+    return NULL;
+  }
+  if (SIZE_MAX / n < size) {
+    return NULL;
+  }
+  size_t total_size = n * size;
+  void *ptr = xd_malloc(total_size);
+  if (ptr == NULL) {
+    return NULL;
+  }
+  memset(ptr, 0, total_size);
+  return ptr;
 }  // xd_calloc()
 
 void *xd_realloc(void *ptr, size_t size) {
