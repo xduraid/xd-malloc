@@ -597,7 +597,26 @@ void *xd_calloc(size_t n, size_t size) {
 }  // xd_calloc()
 
 void *xd_realloc(void *ptr, size_t size) {
-  (void)ptr;
-  (void)size;
-  return NULL;
+  if (size == 0) {
+    xd_free(ptr);
+    return NULL;
+  }
+  if (ptr == NULL) {
+    return xd_malloc(size);
+  }
+
+  xd_mem_block_header *header =
+      (xd_mem_block_header *)((xd_byte *)ptr - XD_BLOCK_HEADER_SIZE);
+  size_t old_size = xd_block_get_size(header);
+
+  // TODO: Optimization
+
+  // allocate-copy-free
+  void *new_ptr = xd_malloc(size);
+  if (new_ptr == NULL) {
+    return NULL;
+  }
+  memcpy(new_ptr, ptr, old_size);
+  xd_free(ptr);
+  return new_ptr;
 }  // xd_realloc()
