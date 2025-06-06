@@ -220,6 +220,9 @@ static inline xd_mem_block_header *xd_block_get_prev(
  *
  * @param header Pointer to the block's header.
  * @param size The required size of the first block after split.
+ *
+ * @note this function is a helpr for `xd_malloc()` and must be used only on
+ * unallocated memory blocks.
  */
 static void xd_block_split(xd_mem_block_header *header, size_t size) {
   // get the size of the block before split
