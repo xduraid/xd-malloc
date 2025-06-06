@@ -69,6 +69,7 @@ static void xd_malloc_init() __attribute__((constructor));
 static void xd_malloc_destroy() __attribute__((destructor));
 
 // helpers
+
 static inline xd_mem_block_header *xd_block_get_header_from_data(void *ptr);
 static inline void xd_block_set_size(xd_mem_block_header *header, size_t size);
 static inline void xd_block_set_state(xd_mem_block_header *header,
@@ -92,6 +93,7 @@ static void xd_block_coalesce_with_next(xd_mem_block_header *header);
 
 static void xd_free_list_insert(xd_mem_block_header *header);
 static void xd_free_list_remove(xd_mem_block_header *header);
+
 static xd_mem_block_header *xd_free_list_find(size_t size);
 
 static void *xd_heap_chunk_create(size_t size);
@@ -366,8 +368,9 @@ static void xd_free_list_remove(xd_mem_block_header *header) {
 }  // xd_free_list_remove()
 
 /**
- * @brief Searches the free list for the first block that can satisfy
- * the requested size and returns its header.
+ * @brief Searches the free list for a block that can satisfy the requested size
+ * and returns its header using First-Fit by default or Best-Fit if
+ * `XD_USE_BEST_FIT` is defined.
  *
  * @param size The requested size in bytes.
  *
@@ -375,11 +378,26 @@ static void xd_free_list_remove(xd_mem_block_header *header) {
  * such block exists.
  */
 static xd_mem_block_header *xd_free_list_find(size_t size) {
+#ifdef XD_USE_BEST_FIT
+  xd_mem_block_header *header = xd_free_list_head;
+  xd_mem_block_header *best_header = NULL;
+  while (header != NULL) {
+    if (xd_block_get_size(header) >= size) {
+      if (best_header == NULL ||
+          xd_block_get_size(header) < xd_block_get_size(best_header)) {
+        best_header = header;
+      }
+    }
+    header = header->next;
+  }
+  return best_header;
+#else
   xd_mem_block_header *header = xd_free_list_head;
   while (header != NULL && xd_block_get_size(header) < size) {
     header = header->next;
   }
   return header;
+#endif
 }  // xd_free_list_find()
 
 /**
