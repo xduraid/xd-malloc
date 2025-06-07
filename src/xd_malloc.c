@@ -16,6 +16,7 @@
 #include "xd_malloc.h"
 
 #include <errno.h>
+#include <inttypes.h>
 #include <pthread.h>
 #include <stdbool.h>
 #include <stdint.h>
@@ -98,6 +99,10 @@ static xd_mem_block_header *xd_free_list_find(size_t size);
 
 static void *xd_heap_chunk_create(size_t size);
 static bool xd_heap_chunk_try_coalesce(xd_mem_block_header *chunk_header);
+
+static inline uintptr_t xd_block_header_relative_address(
+    xd_mem_block_header *header);
+static inline void xd_block_header_dump(FILE *out, xd_mem_block_header *header);
 
 // ========================
 // Function Implementations
@@ -648,3 +653,99 @@ void *xd_realloc(void *ptr, size_t size) {
   xd_free(ptr);
   return new_ptr;
 }  // xd_realloc()
+
+// ========================
+// Debug/Test Functions
+// ========================
+
+/**
+ * @brief Calculates the relative address of a memory block header from the
+ * start of the heap.
+ *
+ * @param header Pointer to the memory block header.
+ *
+ * @return The offset of the header from the start of the heap.
+ */
+static inline uintptr_t xd_block_header_relative_address(
+    xd_mem_block_header *header) {
+  return (uintptr_t)((xd_byte *)header - (xd_byte *)xd_heap_start_address);
+}  // xd_block_header_relative_address()
+
+/**
+ * @brief Dumps the contents of a memory block header to the passed output
+ * stream.
+ *
+ * @param out Pointer to the output file stream.
+ * @param header Pointer to the memory block header to be dumped.
+ */
+static inline void xd_block_header_dump(FILE *out,
+                                        xd_mem_block_header *header) {
+  if (header == NULL) {
+    fprintf(out, "[NULL]");
+    return;
+  }
+
+  switch (xd_block_get_state(header)) {
+    case XD_MEM_BLOCK_UNALLOCATED:
+      fprintf(out, "[UNALLOCATED]\n");
+      break;
+    case XD_MEM_BLOCK_ALLOCATED:
+      fprintf(out, "[ALLOCATED]\n");
+      break;
+    case XD_MEM_BLOCK_FENCEPOST:
+      fprintf(out, "[FENCEPOST]\n");
+      break;
+    default:
+      fprintf(out, "[INVALID BLOCK]\n");
+      break;
+  }
+  fprintf(out, "  address:   %" PRIuPTR "\n",
+          (uintptr_t)((xd_byte *)header - (xd_byte *)xd_heap_start_address));
+  fprintf(out, "  size:      %zu\n", xd_block_get_size(header));
+  fprintf(out, "  prev_size: %zu\n", header->prev_size);
+
+  if (xd_block_get_state(header) == XD_MEM_BLOCK_UNALLOCATED) {
+    if (header->prev == NULL) {
+      fprintf(out, "  prev:   NULL\n");
+    }
+    else {
+      fprintf(out, "  prev:  %" PRIuPTR "\n",
+              xd_block_header_relative_address(header->prev));
+    }
+    if (header->next == NULL) {
+      fprintf(out, "  next:   NULL\n");
+    }
+    else {
+      fprintf(out, "  next:  %" PRIuPTR "\n",
+              xd_block_header_relative_address(header->next));
+    }
+  }
+}  // xd_block_header_dump()
+
+void xd_heap_headers_dump(FILE *out, void *start, void *end) {
+  if (start == NULL) {
+    start = xd_heap_start_address;
+  }
+  if (end == NULL) {
+    end = sbrk(0);
+  }
+  xd_mem_block_header *header = (xd_mem_block_header *)start;
+  while ((void *)header < end) {
+    xd_block_header_dump(out, header);
+    header = xd_block_get_next(header);
+    if (header != NULL) {
+      fprintf(out, "-----------------\n");
+    }
+  }
+}  // xd_heap_headers_dump()
+
+void xd_free_list_headers_dump(FILE *out) {
+  xd_mem_block_header *header = xd_free_list_head;
+  while (header != NULL) {
+    xd_block_header_dump(out, header);
+    header = header->next;
+    if (header != NULL) {
+      fprintf(out, "-----------------\n");
+    }
+  }
+}  // xd_free_list_headers_dump()
