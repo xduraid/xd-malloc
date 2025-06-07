@@ -114,6 +114,15 @@ typedef struct xd_mem_block_header {
 static void *xd_heap_start_address = NULL;
 
 /**
+ * @brief Pointer to the location of the current end of the heap managed by this
+ * library.
+ *
+ * Used to know if the heap was corrupted by calling `sbrk()` outside this
+ * library.
+ */
+static void *xd_heap_end_address = NULL;
+
+/**
  * @brief Pointer to the head of the free list.
  */
 static xd_mem_block_header *xd_free_list_head = NULL;
@@ -505,6 +514,8 @@ static void *xd_heap_chunk_create(size_t size) {
     return NULL;
   }
 
+  xd_heap_end_address = sbrk(0);
+
   // clean block size (data section)
   size -= 3 * XD_BLOCK_HEADER_SIZE;
 
@@ -594,6 +605,11 @@ static bool xd_heap_chunk_try_coalesce(xd_mem_block_header *chunk_header) {
 // ========================
 
 void *xd_malloc(size_t size) {
+  // corrupted heap, function wont work
+  if (sbrk(0) != xd_heap_end_address) {
+    return NULL;
+  }
+
   if (size == 0) {
     return NULL;
   }
@@ -649,6 +665,11 @@ void *xd_malloc(size_t size) {
 }  // xd_malloc()
 
 void xd_free(void *ptr) {
+  // corrupted heap, function wont work
+  if (sbrk(0) != xd_heap_end_address) {
+    return;
+  }
+
   if (ptr == NULL) {
     return;
   }
@@ -689,6 +710,11 @@ void xd_free(void *ptr) {
 }  // xd_free()
 
 void *xd_calloc(size_t n, size_t size) {
+  // corrupted heap, function wont work
+  if (sbrk(0) != xd_heap_end_address) {
+    return NULL;
+  }
+
   if (n == 0 || size == 0) {
     return NULL;
   }
@@ -705,6 +731,11 @@ void *xd_calloc(size_t n, size_t size) {
 }  // xd_calloc()
 
 void *xd_realloc(void *ptr, size_t size) {
+  // corrupted heap, function wont work
+  if (sbrk(0) != xd_heap_end_address) {
+    return NULL;
+  }
+
   if (size == 0) {
     xd_free(ptr);
     return NULL;
