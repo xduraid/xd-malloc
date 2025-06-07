@@ -214,6 +214,7 @@ static void xd_malloc_init() {
     fprintf(stderr, "xd_malloc: heap start is not 8-byte aligned\n");
     exit(EXIT_FAILURE);
   }
+  xd_heap_end_address = xd_heap_start_address;
 }  // xd_malloc_init()
 
 /**
@@ -765,12 +766,16 @@ void *xd_realloc(void *ptr, size_t size) {
   return new_ptr;
 }  // xd_realloc()
 
+// ========================
+// Debug/Test Functions
+// ========================
+
 void xd_heap_headers_dump(FILE *out, void *start, void *end) {
   if (start == NULL) {
     start = xd_heap_start_address;
   }
   if (end == NULL) {
-    end = sbrk(0);
+    end = xd_heap_end_address;
   }
   xd_mem_block_header *header = (xd_mem_block_header *)start;
   while (header != NULL && (void *)header < end) {
@@ -792,10 +797,6 @@ void xd_free_list_headers_dump(FILE *out) {
     }
   }
 }  // xd_free_list_headers_dump()
-
-// ========================
-// Debug/Test Functions
-// ========================
 
 /**
  * @brief Calculates the relative address of a memory block header from the
