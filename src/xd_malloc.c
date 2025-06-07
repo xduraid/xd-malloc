@@ -25,10 +25,84 @@
 #include <string.h>
 #include <unistd.h>
 
+// ========================
+// Constants
+// ========================
+
+/**
+ * @brief Alignment requirement for all memory blocks.
+ *
+ * All allocated memory block sizes must be a multiple of this value.
+ */
+#define XD_ALIGNMENT (8)
+
+/**
+ * @brief The default size of an arena - a large contiguous block
+ * of memory requested from the operating system.
+ *
+ * All requested arenas are rounded up to a multiple of this value.
+ */
+#define XD_ARENA_SIZE (4096)
+
+/**
+ * @brief The size of a memory block header (only metadata).
+ */
+#define XD_BLOCK_HEADER_SIZE \
+  (sizeof(xd_mem_block_header) - 2 * sizeof(xd_mem_block_header *))
+
+/**
+ * @brief The minimum data section size a memory block must have to be managed
+ * in the free list.
+ */
+#define XD_MIN_ALLOC_SIZE (2 * sizeof(xd_mem_block_header *))
+
 /**
  * @brief Used to calculate the size/state of a memory block.
  */
 #define XD_STATE_MASK (0b111)
+
+// ========================
+// Types
+// ========================
+
+/**
+ * @brief Represents a single byte of memory.
+ */
+typedef char xd_byte;
+
+/**
+ * @brief Represents the state of a memory block.
+ */
+typedef enum xd_mem_block_state {
+  XD_MEM_BLOCK_UNALLOCATED = 0b000,  // Unallocated memory block
+  XD_MEM_BLOCK_ALLOCATED = 0b001,    // Allocated memory block
+  XD_MEM_BLOCK_FENCEPOST = 0b010     // Separator between two OS chunks
+} xd_mem_block_state;
+
+/**
+ * @brief Represents a memory block header, contains the metadata of the
+ * memory block.
+ */
+typedef struct xd_mem_block_header {
+  size_t size;       // The size of the block (only data excluding header).
+                     // Since `MIN_ALLOCATION_SIZE` is `8` we will use the
+                     // three least significant bits to store the  state of
+                     // the block.
+  size_t prev_size;  // The size of the previous block's data (for coalescing)
+
+  // The start of the user's data
+  // when the block is free (in the free list) `prev` and `next`
+  // are used, otherwise (allocated) `data` will be used.
+  // if it is a fencepost this part is not used at all and no memory is
+  // allocated for it.
+  union {
+    struct {
+      struct xd_mem_block_header *next;  // The next block in the free list
+      struct xd_mem_block_header *prev;  // The previous block in the free list
+    };
+    xd_byte data[0];  // Pointer to the data section in the memory block
+  };
+} xd_mem_block_header;
 
 // ========================
 // Global Variables
@@ -37,12 +111,12 @@
 /**
  * @brief Pointer to the location of the heap prior to any sbrk calls.
  */
-void *xd_heap_start_address = NULL;
+static void *xd_heap_start_address = NULL;
 
 /**
  * @brief Pointer to the head of the free list.
  */
-xd_mem_block_header *xd_free_list_head = NULL;
+static xd_mem_block_header *xd_free_list_head = NULL;
 
 // ========================
 // Static Variables
@@ -654,6 +728,34 @@ void *xd_realloc(void *ptr, size_t size) {
   return new_ptr;
 }  // xd_realloc()
 
+void xd_heap_headers_dump(FILE *out, void *start, void *end) {
+  if (start == NULL) {
+    start = xd_heap_start_address;
+  }
+  if (end == NULL) {
+    end = sbrk(0);
+  }
+  xd_mem_block_header *header = (xd_mem_block_header *)start;
+  while ((void *)header < end) {
+    xd_block_header_dump(out, header);
+    header = xd_block_get_next(header);
+    if (header != NULL) {
+      fprintf(out, "-----------------\n");
+    }
+  }
+}  // xd_heap_headers_dump()
+
+void xd_free_list_headers_dump(FILE *out) {
+  xd_mem_block_header *header = xd_free_list_head;
+  while (header != NULL) {
+    xd_block_header_dump(out, header);
+    header = header->next;
+    if (header != NULL) {
+      fprintf(out, "-----------------\n");
+    }
+  }
+}  // xd_free_list_headers_dump()
+
 // ========================
 // Debug/Test Functions
 // ========================
@@ -721,31 +823,3 @@ static inline void xd_block_header_dump(FILE *out,
     }
   }
 }  // xd_block_header_dump()
-
-void xd_heap_headers_dump(FILE *out, void *start, void *end) {
-  if (start == NULL) {
-    start = xd_heap_start_address;
-  }
-  if (end == NULL) {
-    end = sbrk(0);
-  }
-  xd_mem_block_header *header = (xd_mem_block_header *)start;
-  while ((void *)header < end) {
-    xd_block_header_dump(out, header);
-    header = xd_block_get_next(header);
-    if (header != NULL) {
-      fprintf(out, "-----------------\n");
-    }
-  }
-}  // xd_heap_headers_dump()
-
-void xd_free_list_headers_dump(FILE *out) {
-  xd_mem_block_header *header = xd_free_list_head;
-  while (header != NULL) {
-    xd_block_header_dump(out, header);
-    header = header->next;
-    if (header != NULL) {
-      fprintf(out, "-----------------\n");
-    }
-  }
-}  // xd_free_list_headers_dump()
