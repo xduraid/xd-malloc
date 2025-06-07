@@ -777,24 +777,26 @@ void xd_heap_headers_dump(FILE *out, void *start, void *end) {
   if (end == NULL) {
     end = xd_heap_end_address;
   }
+  fprintf(out, "-----------------------\n");
+  fprintf(out, "HEAP HEADERS DUMP\n");
+  fprintf(out, "-----------------------\n");
   xd_mem_block_header *header = (xd_mem_block_header *)start;
   while (header != NULL && (void *)header < end) {
     xd_block_header_dump(out, header);
     header = xd_block_get_next(header);
-    if (header != NULL) {
-      fprintf(out, "-----------------\n");
-    }
+    fprintf(out, "-----------------------\n");
   }
 }  // xd_heap_headers_dump()
 
 void xd_free_list_headers_dump(FILE *out) {
+  fprintf(out, "-----------------------\n");
+  fprintf(out, "FREE LIST HEADERS DUMP\n");
+  fprintf(out, "-----------------------\n");
   xd_mem_block_header *header = xd_free_list_head;
   while (header != NULL) {
     xd_block_header_dump(out, header);
     header = header->next;
-    if (header != NULL) {
-      fprintf(out, "-----------------\n");
-    }
+    fprintf(out, "-----------------------\n");
   }
 }  // xd_free_list_headers_dump()
 
