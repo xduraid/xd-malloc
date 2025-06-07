@@ -673,6 +673,12 @@ void xd_free(void *ptr) {
   if (ptr == NULL) {
     return;
   }
+
+  // fail if the address is outside the heap
+  if (ptr < xd_heap_start_address || ptr > xd_heap_end_address) {
+    return;
+  }
+
   pthread_mutex_lock(&xd_malloc_mutex);
 
   xd_mem_block_header *header = xd_block_get_header_from_data(ptr);
