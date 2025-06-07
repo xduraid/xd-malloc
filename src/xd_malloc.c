@@ -736,7 +736,7 @@ void xd_heap_headers_dump(FILE *out, void *start, void *end) {
     end = sbrk(0);
   }
   xd_mem_block_header *header = (xd_mem_block_header *)start;
-  while ((void *)header < end) {
+  while (header != NULL && (void *)header < end) {
     xd_block_header_dump(out, header);
     header = xd_block_get_next(header);
     if (header != NULL) {
