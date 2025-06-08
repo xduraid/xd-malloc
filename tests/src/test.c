@@ -19,6 +19,9 @@
 #include "xd_malloc.h"
 
 int main() {
-  printf("%d\n", foo());
+  int *integer = (int *)xd_malloc(sizeof(int));
+  *integer = -99;
+  printf("%d\n", *integer);
+  xd_free(integer);
   exit(EXIT_SUCCESS);
 }
