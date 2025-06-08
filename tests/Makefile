@@ -18,6 +18,7 @@ INCLUDE_DIR = include
 BIN_DIR = bin
 MAIN_INCLUDE_DIR = ../include
 MAIN_SRC_DIR = ../src
+OUTPUT_DIR = output
 
 CC = gcc
 CC_FLAGS = -std=gnu11 \
@@ -27,6 +28,7 @@ CC_FLAGS = -std=gnu11 \
 
 MAIN_SRCS = $(wildcard $(MAIN_SRC_DIR)/*.c)
 SRCS = $(wildcard $(SRC_DIR)/*.c)
+
 BINS_32bit = $(patsubst $(SRC_DIR)/%.c, $(BIN_DIR)/%_32bit, $(SRCS))
 BINS_64bit = $(patsubst $(SRC_DIR)/%.c, $(BIN_DIR)/%_64bit, $(SRCS))
 
@@ -47,25 +49,15 @@ $(BIN_DIR)/%_64bit: $(SRC_DIR)/%.c $(MAIN_SRCS)
 rebuild: clean all
 
 clean:
-	rm -rf $(BIN_DIR)
+	rm -rf $(BIN_DIR) $(OUTPUT_DIR)
 
 # run all tests
-run_tests: $(BINS)
-	@for test in $(BINS); do \
-		echo "--------------------------------------------"; \
-		echo ">> Running $$test..."; \
-		echo "--------------------------------------------";  \
-		./$$test || exit 1; \
-	done; \
-	echo "--------------------------------------------";  \
+run_tests: all
+	@./run_all_tests.sh || true
 
 # run a specific test
 run_%: $(BIN_DIR)/%
-	@echo "--------------------------------------------"; \
-	echo ">> Running $<..."; \
-	echo "--------------------------------------------";  \
-	./$< || exit 1; \
-	echo "--------------------------------------------";  \
+	@./run_test.sh $< || true
 
 help:
 	@echo "Available targets:"
