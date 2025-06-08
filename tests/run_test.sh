@@ -45,7 +45,11 @@ if [ ! -f "$expected_output_file" ]; then
 fi
 
 
-./"$test_executable" > "$output_file"
+if ! $(./"$test_executable" > "$output_file" 2>&1); then
+  echo -e $COLOR_FG_RED"FAILED"$COLOR_RESET
+  exit 1
+fi
+
 if ! diff "$output_file" "$expected_output_file" >& /dev/null ; then
   echo -e $COLOR_FG_RED"FAILED"$COLOR_RESET
   exit 1
