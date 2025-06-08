@@ -27,17 +27,22 @@ CC_FLAGS = -std=gnu11 \
 
 MAIN_SRCS = $(wildcard $(MAIN_SRC_DIR)/*.c)
 SRCS = $(wildcard $(SRC_DIR)/*.c)
-BINS = $(patsubst $(SRC_DIR)/%.c, $(BIN_DIR)/%, $(SRCS))
+BINS_32bit = $(patsubst $(SRC_DIR)/%.c, $(BIN_DIR)/%_32bit, $(SRCS))
+BINS_64bit = $(patsubst $(SRC_DIR)/%.c, $(BIN_DIR)/%_64bit, $(SRCS))
 
 .SUFFIXES:
 .SECONDARY:
 .PHONY: all rebuild clean run_tests run_% help
 
-all: $(BINS)
+all: $(BINS_64bit) $(BINS_32bit)
 
-$(BIN_DIR)/%: $(SRC_DIR)/%.c $(MAIN_SRCS)
+$(BIN_DIR)/%_32bit: $(SRC_DIR)/%.c $(MAIN_SRCS)
 	@mkdir -p $(BIN_DIR)
-	$(CC) $(CC_FLAGS) -o $@ $^
+	$(CC) $(CC_FLAGS) -m32 -o $@ $^
+
+$(BIN_DIR)/%_64bit: $(SRC_DIR)/%.c $(MAIN_SRCS)
+	@mkdir -p $(BIN_DIR)
+	$(CC) $(CC_FLAGS) -m64 -o $@ $^
 
 rebuild: clean all
 
