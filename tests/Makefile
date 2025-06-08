@@ -52,7 +52,7 @@ clean:
 	rm -rf $(BIN_DIR) $(OUTPUT_DIR)
 
 # run all tests
-run_tests: all
+run_tests: clean all
 	@./run_all_tests.sh || true
 
 # run a specific test
