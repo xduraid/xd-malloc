@@ -40,7 +40,7 @@ DEPS = $(OBJS:.o=.d)
 .SECONDARY:
 .PHONY: all rebuild release debug clean run_tests help
 
-all: debug
+all: release
 
 $(TARGET): $(OBJS)
 	@mkdir -p $(LIB_DIR)
@@ -50,14 +50,13 @@ $(BUILD_DIR)/%.o: $(SRC_DIR)/%.c
 	@mkdir -p $(BUILD_DIR)
 	$(CC) $(CC_FLAGS) $(CC_WARN_FLAGS) $(CC_INC_FLAGS) $(CC_DEP_FLAGS) -c $< -o $@
 
-
 rebuild: clean all
 
 release: CC_FLAGS += $(CC_RELEASE_FLAGS)
-release: $(TARGET)
+release: clean $(TARGET)
 
 debug: CC_FLAGS += $(CC_DEBUG_FLAGS)
-debug: $(TARGET)
+debug: clean $(TARGET)
 
 clean:
 	rm -rf $(BUILD_DIR) $(LIB_DIR)
@@ -68,7 +67,7 @@ run_tests: rebuild
 
 help:
 	@echo "Available targets:"
-	@echo "  all         - Build the project (default: debug)"
+	@echo "  all         - Build the project (default: release)"
 	@echo "  rebuild     - Clean and rebuild"
 	@echo "  release     - Build with release flags"
 	@echo "  debug       - Build with debug flags"
