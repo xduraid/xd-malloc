@@ -61,10 +61,12 @@ clean:
 
 # run all tests
 run_tests: clean all
+	chmod +x ./run_all_tests.sh
 	@./run_all_tests.sh || true
 
 # run a specific test
 run_%: $(BIN_DIR)/%
+	chmod +x ./run_test.sh
 	@./run_test.sh $< || true
 
 help:
