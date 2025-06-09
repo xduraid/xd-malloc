@@ -25,6 +25,7 @@
  * - left and right fenceposts are correctly initialized
  * - arena size is multiple of `XD_ARENA_SIZE`
  * - data can be stored and retrieved from allocated block
+ * - block splitting works
  */
 int main() {
   void *ptr = xd_malloc(1);
