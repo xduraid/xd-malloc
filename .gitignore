@@ -4,3 +4,4 @@ bin
 lib
 .clang-tidy
 .clang-format
+output
