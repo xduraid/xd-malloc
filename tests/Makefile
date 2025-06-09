@@ -38,6 +38,14 @@ BINS_64bit = $(patsubst $(SRC_DIR)/%.c, $(BIN_DIR)/%_64bit, $(SRCS))
 
 all: $(BINS_64bit) $(BINS_32bit)
 
+$(BIN_DIR)/test_best_fit_32bit: $(SRC_DIR)/test_best_fit.c $(MAIN_SRCS)
+	@mkdir -p $(BIN_DIR)
+	$(CC) $(CC_FLAGS) -m32 -DXD_USE_BEST_FIT -o $@ $^
+
+$(BIN_DIR)/test_best_fit_64bit: $(SRC_DIR)/test_best_fit.c $(MAIN_SRCS)
+	@mkdir -p $(BIN_DIR)
+	$(CC) $(CC_FLAGS) -m64 -DXD_USE_BEST_FIT  -o $@ $^
+
 $(BIN_DIR)/%_32bit: $(SRC_DIR)/%.c $(MAIN_SRCS)
 	@mkdir -p $(BIN_DIR)
 	$(CC) $(CC_FLAGS) -m32 -o $@ $^
