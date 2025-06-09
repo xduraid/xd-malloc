@@ -1,0 +1,65 @@
+-----------------------
+HEAP HEADERS DUMP
+-----------------------
+[FENCEPOST]
+  address:   0
+  size:      0
+  prev_size: 0
+-----------------------
+[ALLOCATED]
+  address:   8
+  size:      40
+  prev_size: 0
+-----------------------
+[UNALLOCATED]
+  address:   56
+  size:      4024
+  prev_size: 40
+  prev:   NULL
+  next:   NULL
+-----------------------
+[FENCEPOST]
+  address:   4088
+  size:      0
+  prev_size: 4024
+-----------------------
+-----------------------
+FREE LIST HEADERS DUMP
+-----------------------
+[UNALLOCATED]
+  address:   56
+  size:      4024
+  prev_size: 40
+  prev:   NULL
+  next:   NULL
+-----------------------
+-----------------------
+HEAP HEADERS DUMP
+-----------------------
+[FENCEPOST]
+  address:   0
+  size:      0
+  prev_size: 0
+-----------------------
+[UNALLOCATED]
+  address:   8
+  size:      4072
+  prev_size: 0
+  prev:   NULL
+  next:   NULL
+-----------------------
+[FENCEPOST]
+  address:   4088
+  size:      0
+  prev_size: 4072
+-----------------------
+-----------------------
+FREE LIST HEADERS DUMP
+-----------------------
+[UNALLOCATED]
+  address:   8
+  size:      4072
+  prev_size: 0
+  prev:   NULL
+  next:   NULL
+-----------------------
